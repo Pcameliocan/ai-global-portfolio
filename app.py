@@ -3,10 +3,11 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from datetime import datetime, timezone
+from backtest import simulate
 
 st.set_page_config(page_title='AI Global Portfolio Manager', page_icon='🌍', layout='wide')
 st.title('🌍 AI Global Portfolio Manager')
-st.caption('v0.3 · Análisis cuantitativo experimental · Datos de terceros potencialmente retrasados · SIN órdenes reales')
+st.caption('v0.4 · Análisis cuantitativo y backtesting experimental · Datos de terceros potencialmente retrasados · SIN órdenes reales')
 st.warning('SIMULACIÓN. Las puntuaciones son reglas cuantitativas, no decisiones de una IA autónoma ni recomendaciones personalizadas. No existe conexión a un broker.')
 
 UNIVERSE = {
@@ -103,6 +104,21 @@ proposal = pd.concat([proposal,pd.DataFrame([{'Símbolo':'EFECTIVO','Peso %':rou
 st.dataframe(proposal,hide_index=True,use_container_width=True)
 st.bar_chart(proposal.set_index('Símbolo')['Monto USD'])
 st.caption('La cartera es una asignación teórica calculada hoy. No es una cartera ejecutada; no hay P&L, backtest, costos, ni historial persistente. Las acciones pueden estar denominadas o negociarse de forma distinta según mercado.')
+st.subheader('Backtesting exploratorio (sin operaciones reales)')
+st.caption('Rebalanceo mensual, señales de momentum con información histórica anterior a la ejecución, costos aproximados de 10 puntos básicos por rotación. No incluye impuestos, spreads reales ni sesgo de selección del universo actual.')
+if st.button('Ejecutar backtest'):
+    try:
+        history, trades = simulate(prices,capital=capital,positions=max_positions,max_weight=max_weight/100,cash_floor=cash_floor/100)
+        st.line_chart(history[['Estrategia','SPY (referencia)']])
+        a,b,c=st.columns(3)
+        a.metric('Retorno simulado',f"{(history['Estrategia'].iloc[-1]/capital-1)*100:.1f}%")
+        b.metric('Caída máxima observada',f"{history['Drawdown %'].min():.1f}%")
+        c.metric('Rebalances',str(len(trades)))
+        st.dataframe(trades,hide_index=True,use_container_width=True)
+        st.download_button('Descargar historial CSV',history.to_csv().encode('utf-8'),file_name='backtest_v04.csv',mime='text/csv')
+    except Exception as exc:
+        st.warning('Backtest no disponible: '+str(exc))
+st.info('Esta versión no conserva un libro de operaciones entre reinicios. La persistencia cloud y la ejecución diaria todavía no están implementadas.')
 st.subheader('Estado técnico')
-st.write('🟢 Dashboard · 🟢 Datos históricos consultables · 🟢 Ranking basado en reglas · 🟡 Backtesting pendiente · 🔴 Ejecución programada pendiente · 🔴 Broker desconectado')
+st.write('🟢 Dashboard · 🟢 Datos históricos consultables · 🟢 Ranking basado en reglas · 🟢 Backtesting exploratorio disponible · 🔴 Ejecución programada pendiente · 🔴 Broker desconectado')
 st.caption('No compartas claves API en el repositorio público. Datos solo para investigación y pruebas.')
