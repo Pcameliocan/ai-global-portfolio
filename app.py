@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from backtest import MODELS, simulate_models, metrics, signals
+from portfolio_engine import MODELS, simulate_models, metrics, signals
 
 st.set_page_config(page_title='AI Global Portfolio v0.5',page_icon='🌍',layout='wide')
 st.title('🌍 AI Global Portfolio Manager')

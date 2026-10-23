@@ -19,3 +19,10 @@ Sube `app.py`, `backtest.py`, `requirements.txt` y `README.md` a la raíz del re
 ## Limitaciones importantes
 
 Universo fijo actual y solo 12 meses de evaluación: sesgo de selección/supervivencia y evidencia estadística limitada. Los indicadores proxy de valoración (reversión de precios) **no miden múltiplos de valoración**. Datos actuales de analistas y balances no se inyectan al pasado. ETFs y acciones mezclados: sus métricas fundamentales no son comparables. El precio puede estar retrasado o faltar. Simulación sin persistencia, sin automatización diaria, sin órdenes reales. No subir secretos a GitHub.
+
+
+## Reparación de importación
+Esta distribución usa `portfolio_engine.py` como módulo de cálculo para evitar
+conflictos con versiones anteriores de `backtest.py`. Subir **juntos**
+`app.py` y `portfolio_engine.py` al directorio raíz de GitHub.
+`backtest.py` se conserva por compatibilidad y no es utilizado por `app.py`.
