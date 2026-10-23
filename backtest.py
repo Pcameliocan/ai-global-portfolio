@@ -1,50 +1,89 @@
-"""Educational monthly walk-forward simulation. No brokerage connections."""
+"""Long-only, monthly close-signal/next-session execution, 12-month evaluation.
+Educational proxy factors only; NO point-in-time fundamental/analyst/13F history.
+"""
 import numpy as np
 import pandas as pd
 
+MODELS = {
+    'Momentum actual': 'Momentum 3/6 meses (75%) + volatilidad inversa (25%)',
+    'Calidad–valor–momentum (proxy)': 'Momentum + estabilidad de retornos + reversión de 12 meses (NO fundamentales)',
+    'Rentabilidad–valoración (proxy)': 'Estabilidad + reversión de 12 meses (NO utilidades ni múltiplos)',
+    'Multifactor cuantitativo (proxy)': 'Momentum + estabilidad + reversión + menor volatilidad (NO analistas/13F históricos)',
+}
 
-def simulate(price_map, capital=5000.0, positions=6, max_weight=0.20, cash_floor=0.20, cost_bps=10):
-    # Intersection prevents accidental forward-filling missing securities' prices.
-    panel = pd.concat({k: v.tz_localize(None) if v.index.tz is not None else v for k,v in price_map.items()},axis=1).sort_index()
-    panel = panel.ffill(limit=3).dropna(axis=0,how='any')
-    if len(panel) < 190 or len(panel.columns) < 3:
-        raise ValueError('Se necesitan al menos 190 sesiones comunes y 3 instrumentos con datos completos.')
-    # Signals at close t, orders at close t+1 (no lookahead). Portfolio returns start t+2.
-    dates = panel.index
-    rebal = set()
-    for i in range(127,len(dates)-2):
-        if dates[i].month != dates[i+1].month:
-            rebal.add(i)
-    weights = pd.Series(0.0,index=panel.columns)
-    equity = float(capital)
-    cash_weight = 1.0
-    records=[]; trades=[]
-    returns = panel.pct_change().fillna(0)
-    benchmark = float(capital)
-    for i in range(128,len(panel)):
-        # weights determined after prior close; earn today's returns first.
-        daily = float((weights * returns.iloc[i]).sum())
-        equity *= (1+daily)
-        benchmark *= (1+float(returns['SPY'].iloc[i])) if 'SPY' in panel.columns else 1.0
-        if i-1 in rebal:
-            s = panel.iloc[i-1]
-            m3 = s / panel.iloc[i-1-63] - 1
-            m6 = s / panel.iloc[i-1-126] - 1
-            vol = returns.iloc[i-1-62:i].std()*np.sqrt(252)
-            score = 0.75*((m3+m6)/2).rank(pct=True)+0.25*(1-vol.rank(pct=True))
-            eligible = score[(m3>0)&(m6>0)&(vol>0)].sort_values(ascending=False).head(positions)
-            target = pd.Series(0.0,index=panel.columns)
-            if len(eligible):
-                each = min(float(max_weight),(1-float(cash_floor))/len(eligible))
-                target.loc[eligible.index]=each
-            # approximate turnover costs; no claim of executable fill prices
-            turnover = float((target-weights).abs().sum())
-            fee = equity*turnover*cost_bps/10000
-            equity -= fee
-            trades.append({'Fecha':str(dates[i].date()),'Rotación %':round(turnover*100,2),'Costo simulado USD':round(fee,2),'Activos':', '.join(eligible.index)})
-            weights = target
-            cash_weight = 1-float(weights.sum())
-        records.append({'Fecha':dates[i], 'Estrategia':equity,'SPY (referencia)':benchmark,'Efectivo %':cash_weight*100})
-    result = pd.DataFrame(records).set_index('Fecha')
-    result['Drawdown %']=(result['Estrategia']/result['Estrategia'].cummax()-1)*100
+def _pct(s, higher=True):
+    v = s.rank(pct=True)
+    return v if higher else (1-v)
+
+def signals(prices, end):
+    h = prices.iloc[:end+1]
+    if len(h) < 254:
+        return None
+    p = h.iloc[-1]
+    r = h.pct_change(fill_method=None)
+    mom3 = p / h.iloc[-64] - 1
+    mom6 = p / h.iloc[-127] - 1
+    mom12 = p / h.iloc[-253] - 1
+    vol = r.iloc[-63:].std() * np.sqrt(252)
+    stability = r.iloc[-126:].mean() / r.iloc[-126:].std().replace(0,np.nan)
+    valid = (p > 0) & vol.gt(0) & mom3.notna() & mom6.notna() & mom12.notna()
+    scores = {
+        'Momentum actual': .75*_pct((mom3+mom6)/2)+.25*_pct(vol,False),
+        'Calidad–valor–momentum (proxy)': .4*_pct((mom3+mom6)/2)+.35*_pct(stability)+.25*_pct(-mom12),
+        'Rentabilidad–valoración (proxy)': .55*_pct(stability)+.45*_pct(-mom12),
+        'Multifactor cuantitativo (proxy)': .35*_pct((mom3+mom6)/2)+.25*_pct(stability)+.20*_pct(-mom12)+.20*_pct(vol,False),
+    }
+    return {k:v.where(valid & mom3.gt(0) & mom6.gt(0)).dropna().sort_values(ascending=False) for k,v in scores.items()}
+
+def simulate_models(price_map, capital=5000., positions=6, max_weight=.20, cash_floor=.20, cost_bps=10, months=12):
+    if 'SPY' not in price_map:
+        raise ValueError('Se necesita SPY para el benchmark.')
+    panel = pd.concat({k: s.rename(k) for k,s in price_map.items()},axis=1).sort_index()
+    panel.index = pd.to_datetime(panel.index).tz_localize(None) if panel.index.tz is not None else pd.to_datetime(panel.index)
+    panel = panel.ffill(limit=3)
+    panel = panel.dropna(axis=1, thresh=int(len(panel)*.95))
+    panel = panel.dropna(axis=0,how='any')
+    if len(panel)< 260+int(months*18) or 'SPY' not in panel.columns:
+        raise ValueError('Historial insuficiente para 12 meses de evaluación y 12 meses de indicadores. Descarga al menos 3 años.')
+    start_date = panel.index[-1]-pd.DateOffset(months=months)
+    start = int(panel.index.searchsorted(start_date))
+    if start < 254: raise ValueError('Falta historial de formación de señales previo a la evaluación.')
+    ret = panel.pct_change(fill_method=None).fillna(0)
+    names=list(MODELS)
+    weights={n:pd.Series(0.,index=panel.columns) for n in names}
+    wealth={n:float(capital) for n in names}
+    wealth['SPY']=float(capital)
+    rows=[]; trades=[]
+    # At start: choose from prior close and pay turnover cost at first evaluation close.
+    for i in range(start,len(panel)):
+        if i>start:
+            for n in names:
+                old=weights[n]
+                wealth[n]*=1+float((old*ret.iloc[i]).sum())
+                # Let weights drift after returns, before the next rebalance.
+                gross=1+float((old*ret.iloc[i]).sum())
+                if gross>0: weights[n]=old*(1+ret.iloc[i])/gross
+            wealth['SPY']*=1+float(ret['SPY'].iloc[i])
+        is_rebalance=(i==start or panel.index[i].month!=panel.index[i-1].month)
+        if is_rebalance:
+            sig=signals(panel,i-1)
+            for n in names:
+                eligible=sig[n].head(positions).index if sig else []
+                target=pd.Series(0.,index=panel.columns)
+                if len(eligible): target.loc[eligible]=min(max_weight,(1-cash_floor)/len(eligible))
+                turnover=float((target-weights[n]).abs().sum())
+                fee=wealth[n]*turnover*cost_bps/10000
+                wealth[n]-=fee
+                weights[n]=target
+                trades.append({'Fecha':panel.index[i].date().isoformat(),'Modelo':n,'Rotación %':round(turnover*100,2),'Costo USD':round(fee,2),'Instrumentos':', '.join(eligible)})
+        rows.append({'Fecha':panel.index[i],**wealth})
+    result=pd.DataFrame(rows).set_index('Fecha')
     return result,pd.DataFrame(trades)
+
+def metrics(series, capital):
+    returns=series.pct_change().dropna()
+    total=float(series.iloc[-1]/capital-1)
+    dd=float((series/series.cummax()-1).min())
+    vol=float(returns.std()*np.sqrt(252)) if len(returns)>2 else np.nan
+    sharpe=float(returns.mean()/returns.std()*np.sqrt(252)) if len(returns)>2 and returns.std()>0 else np.nan
+    return {'Retorno %':round(total*100,2),'Drawdown %':round(dd*100,2),'Volatilidad %':round(vol*100,2),'Sharpe (rf=0)':round(sharpe,2)}

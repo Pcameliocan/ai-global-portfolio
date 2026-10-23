@@ -2,123 +2,86 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import datetime, timezone
-from backtest import simulate
+from backtest import MODELS, simulate_models, metrics, signals
 
-st.set_page_config(page_title='AI Global Portfolio Manager', page_icon='🌍', layout='wide')
+st.set_page_config(page_title='AI Global Portfolio v0.5',page_icon='🌍',layout='wide')
 st.title('🌍 AI Global Portfolio Manager')
-st.caption('v0.4 · Análisis cuantitativo y backtesting experimental · Datos de terceros potencialmente retrasados · SIN órdenes reales')
-st.warning('SIMULACIÓN. Las puntuaciones son reglas cuantitativas, no decisiones de una IA autónoma ni recomendaciones personalizadas. No existe conexión a un broker.')
+st.caption('v0.5 · Comparador de 12 meses + señales actuales · SOLO SIMULACIÓN, SIN BROKER')
+st.warning('Los modelos históricos son aproximaciones cuantitativas, NO réplicas de AQR, Dimensional o BlackRock. Sin recomendaciones personalizadas ni operaciones reales.')
+UNIVERSE={'SPY':'ETF EE.UU.','QQQ':'ETF Nasdaq','VXUS':'ETF internacional','BABA':'China ADR','JD':'China ADR','PDD':'China ADR','TSM':'Taiwán ADR','ASML':'Países Bajos','MSFT':'EE.UU.','NVDA':'EE.UU.','GOOGL':'EE.UU.','AMZN':'EE.UU.','MELI':'LatAm','NVO':'Dinamarca ADR','TM':'Japón ADR','INFY':'India ADR','EWJ':'ETF Japón','EWZ':'ETF Brasil','INDA':'ETF India','FXI':'ETF China'}
 
-UNIVERSE = {
- 'SPY':'ETF EE.UU.', 'QQQ':'ETF tecnología EE.UU.', 'VXUS':'ETF internacional', 'BABA':'China (ADR)',
- 'JD':'China (ADR)', 'PDD':'China (ADR)', 'TSM':'Taiwán (ADR)', 'ASML':'Países Bajos',
- 'MSFT':'EE.UU.', 'NVDA':'EE.UU.', 'GOOGL':'EE.UU.', 'AMZN':'EE.UU.',
- 'MELI':'Latinoamérica', 'NVO':'Dinamarca (ADR)', 'TM':'Japón (ADR)', 'INFY':'India (ADR)',
- 'EWJ':'ETF Japón', 'EWZ':'ETF Brasil', 'INDA':'ETF India', 'FXI':'ETF China'
-}
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_prices(symbols):
-    results = {}
-    errors = []
-    for ticker in symbols:
+@st.cache_data(ttl=3600,show_spinner=False)
+def load_prices():
+    out={}; missing=[]
+    for ticker in UNIVERSE:
         try:
-            hist = yf.Ticker(ticker).history(period='1y', interval='1d', auto_adjust=True)
-            if hist.empty or len(hist) < 130:
-                errors.append(ticker)
-                continue
-            series = hist['Close'].dropna()
-            if len(series) < 130 or float(series.iloc[-1]) <= 0:
-                errors.append(ticker)
-                continue
-            results[ticker] = series
-        except Exception:
-            errors.append(ticker)
-    return results, errors
+            h=yf.Ticker(ticker).history(period='3y',interval='1d',auto_adjust=True)
+            s=h['Close'].dropna()
+            if len(s)>500: out[ticker]=s
+            else: missing.append(ticker)
+        except Exception: missing.append(ticker)
+    return out,missing
 
-def compute_ranking(series_map):
-    rows = []
-    for ticker, prices in series_map.items():
-        returns = prices.pct_change().dropna()
-        if len(returns) < 120:
-            continue
-        momentum_3m = float(prices.iloc[-1] / prices.iloc[-64] - 1)
-        momentum_6m = float(prices.iloc[-1] / prices.iloc[-127] - 1)
-        vol = float(returns.tail(63).std() * np.sqrt(252))
-        if not np.isfinite(vol) or vol <= 0:
-            continue
-        rows.append({'Símbolo':ticker,'Mercado':UNIVERSE[ticker], 'Precio USD aprox.':round(float(prices.iloc[-1]),2),
-                     'Momentum 3m %':round(100*momentum_3m,2), 'Momentum 6m %':round(100*momentum_6m,2),
-                     'Volatilidad anual %':round(100*vol,2), '_mom':0.5*momentum_3m+0.5*momentum_6m, '_vol':vol,
-                     'Última fecha':str(prices.index[-1].date())})
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    # Cross-sectional percentile ranks: higher momentum and lower volatility preferred.
-    df['Puntuación'] = (100*(0.75*df['_mom'].rank(pct=True)+0.25*(1-df['_vol'].rank(pct=True)))).round(1)
-    return df.sort_values('Puntuación',ascending=False).reset_index(drop=True)
-
-with st.sidebar:
-    st.header('Parámetros de simulación')
-    capital = st.number_input('Capital simulado (USD)', min_value=100.0, value=5000.0, step=500.0)
-    max_positions = st.slider('Número máximo de posiciones', 2, 10, 6)
-    max_weight = st.slider('Máximo por instrumento (%)', 5, 30, 20, 5)
-    cash_floor = st.slider('Efectivo mínimo (%)', 10, 70, 20, 5)
-    st.caption('Estos controles modifican una propuesta hipotética; no ejecutan operaciones.')
-
-st.subheader('Datos de mercado')
-if st.button('Actualizar datos (caché de hasta 1 hora)'):
-    load_prices.clear()
-with st.spinner('Consultando precios históricos...'):
-    prices, failures = load_prices(tuple(UNIVERSE.keys()))
-
-if failures:
-    st.info('Sin datos suficientes para: '+', '.join(failures)+'. No se sustituyen por precios inventados.')
-if not prices:
-    st.error('No se pudieron obtener cotizaciones. Intenta nuevamente más tarde; el proveedor puede limitar solicitudes.')
-    st.stop()
-ranking = compute_ranking(prices)
-if ranking.empty:
-    st.error('No hay suficientes datos válidos para generar el ranking.')
-    st.stop()
-
-c1,c2,c3 = st.columns(3)
-c1.metric('Capital simulado',f'US${capital:,.0f}')
-c2.metric('Instrumentos analizados',str(len(ranking)))
-c3.metric('Fecha más reciente',max(ranking['Última fecha']))
-st.caption('Precios de Yahoo Finance mediante yfinance; pueden ser retrasados, ajustados o incompletos. No son cotizaciones ejecutables.')
-st.subheader('Ranking cuantitativo')
-st.dataframe(ranking.drop(columns=['_mom','_vol']), hide_index=True, use_container_width=True)
-st.caption('Puntuación: 75% ranking relativo de momentum a 3/6 meses y 25% menor volatilidad a 3 meses. No incorpora balances, valoración, noticias ni riesgos regulatorios.')
-
-st.subheader('Propuesta de cartera simulada')
-# Invest only in instruments with positive momentum; cap each weight and preserve cash.
-eligible = ranking[(ranking['Momentum 3m %']>0)&(ranking['Momentum 6m %']>0)].head(max_positions)
-investable_pct = max(0,100-cash_floor)
-per_position = min(float(max_weight),investable_pct/max(len(eligible),1))
-proposal = pd.DataFrame([{'Símbolo':r['Símbolo'],'Peso %':round(per_position,2),'Monto USD':round(capital*per_position/100,2), 'Motivo':'Momentum 3m y 6m positivo; puntuación relativa'} for _,r in eligible.iterrows()])
-allocated = float(proposal['Monto USD'].sum()) if not proposal.empty else 0.0
-cash = round(float(capital)-allocated,2)
-proposal = pd.concat([proposal,pd.DataFrame([{'Símbolo':'EFECTIVO','Peso %':round(100*cash/capital,2),'Monto USD':cash,'Motivo':'Reserva / sin señales suficientes'}])],ignore_index=True)
-st.dataframe(proposal,hide_index=True,use_container_width=True)
-st.bar_chart(proposal.set_index('Símbolo')['Monto USD'])
-st.caption('La cartera es una asignación teórica calculada hoy. No es una cartera ejecutada; no hay P&L, backtest, costos, ni historial persistente. Las acciones pueden estar denominadas o negociarse de forma distinta según mercado.')
-st.subheader('Backtesting exploratorio (sin operaciones reales)')
-st.caption('Rebalanceo mensual, señales de momentum con información histórica anterior a la ejecución, costos aproximados de 10 puntos básicos por rotación. No incluye impuestos, spreads reales ni sesgo de selección del universo actual.')
-if st.button('Ejecutar backtest'):
+@st.cache_data(ttl=86400,show_spinner=False)
+def live_factors(ticker):
     try:
-        history, trades = simulate(prices,capital=capital,positions=max_positions,max_weight=max_weight/100,cash_floor=cash_floor/100)
-        st.line_chart(history[['Estrategia','SPY (referencia)']])
-        a,b,c=st.columns(3)
-        a.metric('Retorno simulado',f"{(history['Estrategia'].iloc[-1]/capital-1)*100:.1f}%")
-        b.metric('Caída máxima observada',f"{history['Drawdown %'].min():.1f}%")
-        c.metric('Rebalances',str(len(trades)))
+        info=yf.Ticker(ticker).info or {}
+        return {'Fecha consulta (UTC)':pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d'),
+            'Recomendación':str(info.get('recommendationKey') or 'Sin dato'),
+            'Analistas':info.get('numberOfAnalystOpinions'),
+            'Precio objetivo':info.get('targetMeanPrice'),
+            'P/E forward':info.get('forwardPE'),
+            'ROE':info.get('returnOnEquity'),
+            'Crecimiento ingresos':info.get('revenueGrowth'),
+            'Deuda / patrimonio':info.get('debtToEquity')}
+    except Exception: return {}
+
+RATING={'strong_buy':100,'strong buy':100,'buy':75,'hold':50,'sell':25,'strong_sell':0,'strong sell':0}
+with st.sidebar:
+    capital=st.number_input('Capital simulado USD',min_value=100.,value=5000.,step=500.)
+    positions=st.slider('Máximo de posiciones',2,10,6)
+    max_weight=st.slider('Máximo por instrumento %',5,30,20,5)/100
+    cash_floor=st.slider('Efectivo mínimo %',10,70,20,5)/100
+    st.caption('El backtest evalúa los últimos 12 meses. Descarga datos anteriores solo para construir indicadores.')
+if st.button('Actualizar precios'):
+    load_prices.clear()
+with st.spinner('Descargando historial de precios...'):
+    prices,missing=load_prices()
+if missing: st.info('Sin historial suficiente: '+', '.join(missing))
+if len(prices)<4 or 'SPY' not in prices:
+    st.error('No hay datos suficientes del proveedor. Vuelve a intentar más tarde.'); st.stop()
+st.metric('Instrumentos con historial',len(prices))
+st.subheader('Comparación de cuatro estrategias · últimos 12 meses')
+for k,v in MODELS.items(): st.caption(f'**{k}:** {v}')
+st.caption('Las estrategias proxy usan exclusivamente precios históricos; no incorporan balances, consenso de analistas ni 13F históricos. Evitamos usar datos actuales en decisiones pasadas.')
+if st.button('Ejecutar comparación histórica',type='primary'):
+    try:
+        with st.spinner('Simulando modelos...'):
+            curve,trades=simulate_models(prices,capital,positions,max_weight,cash_floor,months=12)
+        st.line_chart(curve)
+        stats=pd.DataFrame([{'Modelo':k,**metrics(curve[k],capital)} for k in curve.columns])
+        st.dataframe(stats,hide_index=True,use_container_width=True)
+        st.caption('Señales al cierre anterior; rebalanceo al cierre siguiente (aproximación), costos 10 bps por rotación; sin spreads, impuestos ni impacto de mercado. SPY es buy-and-hold. Los pesos se ajustan diariamente por variaciones de precio. Universo fijo actual: sesgo de supervivencia/selección.')
         st.dataframe(trades,hide_index=True,use_container_width=True)
-        st.download_button('Descargar historial CSV',history.to_csv().encode('utf-8'),file_name='backtest_v04.csv',mime='text/csv')
-    except Exception as exc:
-        st.warning('Backtest no disponible: '+str(exc))
-st.info('Esta versión no conserva un libro de operaciones entre reinicios. La persistencia cloud y la ejecución diaria todavía no están implementadas.')
-st.subheader('Estado técnico')
-st.write('🟢 Dashboard · 🟢 Datos históricos consultables · 🟢 Ranking basado en reglas · 🟢 Backtesting exploratorio disponible · 🔴 Ejecución programada pendiente · 🔴 Broker desconectado')
-st.caption('No compartas claves API en el repositorio público. Datos solo para investigación y pruebas.')
+        st.download_button('Descargar curvas CSV',curve.to_csv().encode(),file_name='comparacion_v05.csv')
+    except Exception as e: st.error(f'No se pudo ejecutar: {e}')
+st.subheader('Señales actuales: analistas y fundamentales')
+st.caption('Datos de Yahoo Finance (yfinance) con cobertura variable, potencialmente retrasados y NO históricos punto-en-tiempo. No se usan en el backtest.')
+selected=st.selectbox('Examinar instrumento',list(prices.keys()))
+if st.button('Consultar señales actuales'):
+    d=live_factors(selected)
+    if d:
+        st.dataframe(pd.DataFrame([d]),hide_index=True,use_container_width=True)
+        r=str(d.get('Recomendación','')).lower().replace('-','_')
+        score=RATING.get(r)
+        if score is not None:
+            st.metric('Puntuación de recomendación (0–100)',score)
+            st.caption('Conversión categórica de la recomendación agregada del proveedor; no equivale a un consenso ponderado por analista.')
+        else: st.info('No hay recomendación convertible a puntuación.')
+    else: st.info('Proveedor sin datos fundamentales para este instrumento.')
+st.subheader('Posicionamiento institucional / Smart Money')
+st.info('Aún sin índice automático: se requieren posiciones 13F fechadas, identificadores de emisor, ajustes por splits y fecha efectiva de publicación. No asignamos puntuaciones inventadas.')
+st.caption('Los 13F reflejan posiciones declaradas con retraso y cobertura incompleta; no constituyen señales Buy/Sell. Un índice real necesita historial punto-en-tiempo para evitar sesgo retrospectivo.')
+st.subheader('Estado')
+st.write('🟢 Backtest comparativo de 12 meses · 🟢 Señales actuales consultables · 🟡 Smart Money pendiente de proveedor histórico · 🔴 Trading autónomo y broker desactivados')
+st.caption('No publiques claves ni información de broker en GitHub.')
