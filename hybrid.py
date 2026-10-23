@@ -41,17 +41,25 @@ def calculate_score(prices,info,institutional=None):
     score=round(sum(WEIGHTS[k]*v for k,v in factors.items() if v is not None)/coverage,1) if coverage else None
     return {'score':score,'coverage':round(coverage*100,1),'factors':factors}
 
-def propose_allocation(rows,capital=5000,max_positions=6,max_weight=.20,cash_floor=.20,minimum_score=65,minimum_coverage=65):
-    """Non-executable target weights. Caps total investment and individual exposure."""
-    eligible=[r for r in rows if r.get('score') is not None and r['score']>=minimum_score and r['coverage']>=minimum_coverage]
-    eligible=sorted(eligible,key=lambda r:r['score'],reverse=True)[:max_positions]
-    investable=max(0,1-cash_floor)
-    remaining=investable
-    allocations=[]
+def propose_allocation(rows,capital=5000,max_positions=6,max_weight=.20,cash_floor=.20,minimum_score=65,minimum_coverage=65,sector_cap=.30,sector_map=None):
+    """Diversified, non-executable target portfolio. Unknown sectors cannot bypass caps."""
+    sector_map=sector_map or {}
+    eligible=[]
+    for r in rows:
+        score=_number(r.get('score')); cov=_number(r.get('coverage'))
+        if score is None or cov is None or score<minimum_score or cov<minimum_coverage: continue
+        if not r.get('ticker'): continue
+        eligible.append(r)
+    eligible.sort(key=lambda r:(-float(r['score']),str(r['ticker'])))
+    remaining=max(0.,1-float(cash_floor)); allocations=[]; sector_used={}
     for r in eligible:
-        w=min(max_weight,remaining)
-        if w<=1e-9: break
-        allocations.append({'Símbolo':r['ticker'],'Score':r['score'],'Cobertura %':r['coverage'],'Peso %':round(w*100,2),'Monto USD':round(w*capital,2),'Decisión':'Candidato simulado'})
+        if len(allocations)>=max_positions or remaining<.00001: break
+        ticker=str(r['ticker']); sector=sector_map.get(ticker,'Sin clasificar')
+        cap_left=max(0.,sector_cap-sector_used.get(sector,0.))
+        w=min(float(max_weight),remaining,cap_left)
+        if w<.005: continue
+        sector_used[sector]=sector_used.get(sector,0.)+w
         remaining-=w
+        allocations.append({'Símbolo':ticker,'Sector / exposición':sector,'Score':r['score'],'Cobertura %':r['coverage'], 'Peso %':round(w*100,2),'Monto USD':round(w*capital,2),'Decisión':'Candidato simulado'})
     cash=round(capital*(1-sum(x['Peso %'] for x in allocations)/100),2)
     return allocations,cash
