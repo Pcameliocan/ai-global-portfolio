@@ -1,28 +1,19 @@
-# AI Global Portfolio Manager v0.5
+# AI Global Portfolio Manager v0.6
 
-Dashboard educativo de Streamlit para comparar **cuatro estrategias proxy** durante los **últimos 12 meses**, con historial anterior usado solo para calcular señales. Ninguna operación real ni integración de broker.
+Actualiza el repositorio Streamlit con **todos los archivos de este ZIP** en la raíz del proyecto. `app.py` importa `portfolio_engine.py` y `hybrid.py`. No elimines esos módulos.
 
-## Instalación
+## Funcionalidad
 
-Sube `app.py`, `backtest.py`, `requirements.txt` y `README.md` a la raíz del repositorio GitHub existente. Streamlit Community Cloud ejecuta `app.py`. Si no se actualiza, usa Reboot app.
+- Conserva el backtesting exploratorio de 12 meses de cuatro modelos y SPY de v0.5.
+- Nuevo ranking híbrido **actual** con momentum, calidad, valoración y recomendación agregada de analistas, consultados con yfinance/Yahoo Finance. El quinto factor, Smart Money, se mantiene sin dato hasta contar con posiciones 13F verificadas y fechadas.
+- Informa **cobertura** para que no se confunda un score basado en pocos factores con una evaluación completa.
+- Propone una asignación simulada de US$5.000 con topes por posición, efectivo mínimo y umbrales de score/cobertura. No genera órdenes ni conserva un libro de transacciones.
+- Datos actuales **nunca** se aplican a fechas históricas del backtest. Los modelos históricos siguen siendo proxies basados en precios y no replican estrategias propietarias.
 
-## Alcance
+## Instalación desde GitHub
 
-- Cuatro estrategias **proxy basadas solo en precios** (NO reproducciones fieles de AQR o Dimensional ni un modelo fundamental histórico).
-- Ventana de evaluación de 12 meses, datos de 3 años para indicadores de hasta 12 meses.
-- Señales calculadas con precios del cierre previo; rebalanceo aproximado en el cierre siguiente. Sin ejecución intradía.
-- Costo estimado de 10 bps por rotación; no incluye spread, impuestos ni impacto de mercado.
-- Comparación con SPY, Sharpe sin tasa libre de riesgo, drawdown, volatilidad y registro de rebalanceos.
-- Consulta **actual** de recomendación agregada, número de analistas, precio objetivo, P/E forward, ROE, crecimiento de ingresos y deuda/patrimonio desde Yahoo Finance. Datos opcionales y no garantizados.
-- **Smart Money no implementado** hasta contar con fuente 13F histórica y fechas de publicación. Nunca se rellenan puntuaciones ficticias.
+Subir juntos `app.py`, `hybrid.py`, `portfolio_engine.py`, `backtest.py`, `requirements.txt`, `README.md`; confirmar en la rama main. Streamlit se actualiza con el commit. Abrir el dashboard y pulsar **Calcular ranking híbrido actual**. Los datos de Yahoo pueden faltar o fallar por límites del proveedor.
 
-## Limitaciones importantes
+## Limitaciones
 
-Universo fijo actual y solo 12 meses de evaluación: sesgo de selección/supervivencia y evidencia estadística limitada. Los indicadores proxy de valoración (reversión de precios) **no miden múltiplos de valoración**. Datos actuales de analistas y balances no se inyectan al pasado. ETFs y acciones mezclados: sus métricas fundamentales no son comparables. El precio puede estar retrasado o faltar. Simulación sin persistencia, sin automatización diaria, sin órdenes reales. No subir secretos a GitHub.
-
-
-## Reparación de importación
-Esta distribución usa `portfolio_engine.py` como módulo de cálculo para evitar
-conflictos con versiones anteriores de `backtest.py`. Subir **juntos**
-`app.py` y `portfolio_engine.py` al directorio raíz de GitHub.
-`backtest.py` se conserva por compatibilidad y no es utilizado por `app.py`.
+Los datos fundamentales y ratings pueden estar desactualizados, incompletos o ser inapropiados para ETFs. Las puntuaciones son heurísticas de investigación, no una estimación estadística de retornos. No existe backtest punto-en-tiempo para el nuevo score. No usar para operar dinero real.
