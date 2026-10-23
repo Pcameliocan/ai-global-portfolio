@@ -1,15 +1,14 @@
-# AI Global Portfolio Manager — Dashboard v0.2
+# AI Global Portfolio Manager — v0.3
 
-Demo Streamlit para un portafolio ilustrativo de USD 5.000. No descarga precios, no ejecuta órdenes y no está conectado a ningún broker.
+Streamlit prototype for quantitative screening and hypothetical allocation of a USD 5,000 global portfolio.
 
-## Despliegue en Streamlit Community Cloud
-1. Subir `app.py` y `requirements.txt` a la raíz de un repositorio GitHub.
-2. Abrir https://share.streamlit.io/ e iniciar sesión con GitHub.
-3. Crear app seleccionando el repositorio y `app.py` como archivo principal.
-4. Desplegar y abrir la URL asignada.
+## Deploy
 
-## Ejecutar localmente
-`pip install -r requirements.txt`
-`streamlit run app.py`
+Replace the three files in the root of your GitHub repository (`app.py`, `requirements.txt`, `README.md`). Streamlit Community Cloud should redeploy on commit. Entry point: `app.py`.
 
-Nota: verificar las opciones de privacidad del despliegue; un repositorio privado no garantiza que la app sea privada.
+## Limitations
+
+- Historical third-party data can be stale or unavailable; no guarantee of real-time quotes.
+- Momentum/volatility scoring is deterministic, not an AI investment adviser.
+- Hypothetical allocations only. No live orders, brokerage connection, persistent state, or verified backtest.
+- Never commit secrets or API keys. Do not use this dashboard for live trading.
