@@ -87,3 +87,4 @@ def metrics(series, capital):
     vol=float(returns.std()*np.sqrt(252)) if len(returns)>2 else np.nan
     sharpe=float(returns.mean()/returns.std()*np.sqrt(252)) if len(returns)>2 and returns.std()>0 else np.nan
     return {'Retorno %':round(total*100,2),'Drawdown %':round(dd*100,2),'Volatilidad %':round(vol*100,2),'Sharpe (rf=0)':round(sharpe,2)}
+    print("BACKTEST V0.5 CARGADO", list(MODELS.keys()))
