@@ -11,14 +11,12 @@ from hybrid import calculate_score, propose_allocation
 from smart_money import score_13f
 from risk_v08 import allocate_with_theme, confidence, benchmark_cash_curve, THEMES
 
-st.set_page_config(page_title='AI Global Portfolio v0.8',page_icon='🌍',layout='wide')
+st.set_page_config(page_title='AI Global Portfolio v0.9',page_icon='🌍',layout='wide')
 st.title('🌍 AI Global Portfolio Manager')
-st.caption('v0.8 · Comparador 12 meses + ranking híbrido actual · SOLO SIMULACIÓN, SIN BROKER')
+st.caption('v0.9 · Comparador 12 meses + ranking híbrido actual · SOLO SIMULACIÓN, SIN BROKER')
 st.warning('Los modelos históricos son aproximaciones cuantitativas, NO réplicas de AQR, Dimensional o BlackRock. Sin recomendaciones personalizadas ni operaciones reales.')
-UNIVERSE={'SPY':'ETF EE.UU.','QQQ':'ETF Nasdaq','VXUS':'ETF internacional','BABA':'China ADR','JD':'China ADR','PDD':'China ADR','TSM':'Taiwán ADR','ASML':'Países Bajos','MSFT':'EE.UU.','NVDA':'EE.UU.','GOOGL':'EE.UU.','AMZN':'EE.UU.','MELI':'LatAm','NVO':'Dinamarca ADR','TM':'Japón ADR','INFY':'India ADR','EWJ':'ETF Japón','EWZ':'ETF Brasil','INDA':'ETF India','FXI':'ETF China','JPM':'Finanzas','BRK-B':'Conglomerado','UNH':'Salud','JNJ':'Salud','ABBV':'Salud','XOM':'Energía','CVX':'Energía','CAT':'Industria','DE':'Industria','NEE':'Servicios públicos','COST':'Consumo','PG':'Consumo','KO':'Consumo','XLV':'ETF Salud','XLF':'ETF Finanzas','XLE':'ETF Energía','XLI':'ETF Industria'}
+from portfolio_config import UNIVERSE, SECTORS
 
-SECTORS={
- 'SPY':'ETF diversificado','QQQ':'ETF tecnología','VXUS':'ETF internacional','BABA':'Consumo discrecional','JD':'Consumo discrecional','PDD':'Consumo discrecional','TSM':'Tecnología','ASML':'Tecnología','MSFT':'Tecnología','NVDA':'Tecnología','GOOGL':'Comunicación','AMZN':'Consumo discrecional','MELI':'Consumo discrecional','NVO':'Salud','TM':'Consumo discrecional','INFY':'Tecnología','EWJ':'ETF Japón','EWZ':'ETF Brasil','INDA':'ETF India','FXI':'ETF China','JPM':'Finanzas','BRK-B':'Finanzas','UNH':'Salud','JNJ':'Salud','ABBV':'Salud','XOM':'Energía','CVX':'Energía','CAT':'Industria','DE':'Industria','NEE':'Servicios públicos','COST':'Consumo básico','PG':'Consumo básico','KO':'Consumo básico','XLV':'ETF Salud','XLF':'ETF Finanzas','XLE':'ETF Energía','XLI':'ETF Industria'}
 # Los ETF sectoriales cuentan como exposición propia; no se descompone su composición.
 
 @st.cache_data(ttl=3600,show_spinner=False)
@@ -172,7 +170,7 @@ with st.expander('📦 Exportar datos para mejorar el modelo', expanded=False):
     st.caption('Primero ejecuta el ranking y la comparación histórica para incluir ambos resultados.')
     diag_files = {}
     manifest = {
-        'app_version': '0.6.1',
+        'app_version': '0.9',
         'export_utc': datetime.now(timezone.utc).isoformat(),
         'capital_simulado_usd': float(capital),
         'max_posiciones': int(positions),
@@ -217,7 +215,7 @@ with st.expander('📦 Exportar datos para mejorar el modelo', expanded=False):
         if isinstance(value, pd.DataFrame):
             diag_files[filename] = value.to_csv(index=(key == 'diag_curve')).encode('utf-8-sig')
     diag_files['LEEME.txt'] = (
-        'Diagnostico AI Global Portfolio v0.8\\n'
+        'Diagnostico AI Global Portfolio v0.9\\n'
         'Archivos presentes dependen de los calculos ejecutados en esta sesion.\\n'
         'No incluye claves, credenciales, cartera real ni datos institucionales historicos.\\n'
         'El ranking es actual; el backtest usa aproximaciones historicas de precios.\\n'
@@ -234,6 +232,31 @@ with st.expander('📦 Exportar datos para mejorar el modelo', expanded=False):
         mime='application/zip',
         key='download_diagnostic_zip',
     )
+
+st.subheader('Agente autónomo · paper trading diario')
+st.caption('Lectura del registro persistente en Supabase. Las decisiones se calculan en GitHub Actions, no desde el navegador. No existen órdenes reales.')
+try:
+    from supabase_store import Store
+    if 'SUPABASE_URL' in st.secrets and 'SUPABASE_SERVICE_ROLE_KEY' in st.secrets:
+        paper_store=Store(st.secrets['SUPABASE_URL'],st.secrets['SUPABASE_SERVICE_ROLE_KEY'])
+        paper_state=paper_store.state()
+        paper_runs=pd.DataFrame(paper_store.runs(180))
+        paper_trades=pd.DataFrame(paper_store.trades(300))
+        st.metric('Efectivo persistente USD',f"${float(paper_state['cash']):,.2f}")
+        st.write('Posiciones simuladas:',paper_state.get('holdings',{}))
+        st.write('Próxima asignación pendiente:',paper_state.get('pending') or 'Sin señales aún')
+        if not paper_runs.empty:
+            paper_runs=paper_runs.sort_values('market_date')
+            st.line_chart(paper_runs.set_index('market_date')[['equity']])
+            st.dataframe(paper_runs[['market_date','equity','cash','rationale']].tail(20),hide_index=True,use_container_width=True)
+            st.download_button('Exportar registro diario CSV',paper_runs.to_csv(index=False).encode('utf-8-sig'),file_name='paper_runs.csv')
+        if not paper_trades.empty:
+            st.dataframe(paper_trades.head(40),hide_index=True,use_container_width=True)
+            st.download_button('Exportar operaciones simuladas CSV',paper_trades.to_csv(index=False).encode('utf-8-sig'),file_name='paper_trades.csv')
+    else:
+        st.info('El historial persistente aparecerá cuando configures Supabase en los Secrets de Streamlit.')
+except Exception as exc:
+    st.warning('No fue posible leer el historial persistente. Revisa configuración o conectividad de Supabase.')
 
 st.subheader('Estado')
 st.write('🟢 Backtest 12 meses · 🟢 Límites sectoriales y temáticos · 🟢 Exportación diagnóstico · 🟡 Smart Money CSV manual · 🔴 Trading y broker desactivados')
