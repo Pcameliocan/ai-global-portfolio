@@ -1,0 +1,44 @@
+
+name: Daily paper portfolio
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 23 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paper-portfolio-daily
+  cancel-in-progress: false
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Verificar configuracion
+        run: |
+          test -n "$SUPABASE_URL" || exit 1
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || exit 1
+
+      - name: Ejecutar agente simulado
+        run: python daily_worker.py
